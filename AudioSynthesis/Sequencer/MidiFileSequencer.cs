@@ -20,12 +20,12 @@ namespace AudioSynthesis.Sequencer
     {
         //--Variables
         private Synthesizer synth;
-        private MidiMessage[] mdata;
+        public MidiMessage[] mdata;
         private bool[] blockList;
         private bool playing = false;
         private double playbackrate = 1.0; // 1/8 to 8
         private int totalTime;
-        private int sampleTime;
+        public int sampleTime;
         private int eventIndex;
 
         //--Public Properties
@@ -98,6 +98,10 @@ namespace AudioSynthesis.Sequencer
         public bool IsChannelMuted(int channel)
         {
             return blockList[channel];
+        }
+        public void ToggleChannelMuted(int channel)
+        {
+            blockList[channel] ^= true;
         }
         public void MuteAllChannels()
         {
@@ -172,12 +176,17 @@ namespace AudioSynthesis.Sequencer
             sampleTime = 0;
             //Calculate sample based time using double counter and round down to nearest integer sample.
             double absDelta = 0.0;
+            double absTime = 0.0;
             for (int x = 0; x < mdata.Length; x++)
             {
                 MidiEvent mEvent = midiFile.Tracks[0].MidiEvents[x];
                 mdata[x] = new MidiMessage((byte)mEvent.Channel, (byte)mEvent.Command, (byte)mEvent.Data1, (byte)mEvent.Data2);
                 absDelta += synth.SampleRate * mEvent.DeltaTime * (60.0 / (BPM * midiFile.Division));
                 mdata[x].delta = (int)absDelta;
+
+                
+
+                //System.Diagnostics.Debug.WriteLine(String.Format("Abs ms: Event {0} vs Message {1}", mEvent.AbsTime, mdata[x].AbsTime_ms));
                 //Update tempo
                 if (mEvent.Command == 0xFF && mEvent.Data1 == 0x51)
                     BPM = Math.Round(MidiHelper.MicroSecondsPerMinute / (double)((MetaNumberEvent)mEvent).Value, 2);
@@ -198,6 +207,11 @@ namespace AudioSynthesis.Sequencer
                 eventIndex++;
             }
             sampleTime += amount;
+        }
+
+        public int ChannelCount()
+        {
+            return blockList.Length; 
         }
     }
 }

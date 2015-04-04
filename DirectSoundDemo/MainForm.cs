@@ -13,27 +13,32 @@ namespace DirectSoundDemo
 {
     public partial class MainForm : Form
     {
+        private LaserMuzak lasermuzak = new LaserMuzak();
         private Log lctrl = new Log();
         private PlayList plist = new PlayList();
         private PlayControls pctrl = new PlayControls();
         private MidiControl mctrol = new MidiControl();
         private PianoControl kctrl = new PianoControl();
-        private SynthThread sthread;
+        internal SynthThread sthread;
 
         public MainForm()
         {
             InitializeComponent();
+            lasermuzak.MdiParent = this;
             lctrl.MdiParent = this;
             plist.MdiParent = this;
             pctrl.MdiParent = this;
             mctrol.MdiParent = this;
             kctrl.MdiParent = this;
+
+            lasermuzak.Visible = true;
             lctrl.Visible = false;
             pctrl.Visible = true;
             plist.Visible = false;
             mctrol.Visible = false;
             kctrl.Visible = false;
         }
+
         public bool PlaySong(string fileName)
         {
             bool result = sthread.PlaySong(fileName);
@@ -95,6 +100,11 @@ namespace DirectSoundDemo
             openFileDialog.Filter = "Midi Files (*.mid;*.midi)|*.mid;*.midi";
             if (openFileDialog.ShowDialog(this) == DialogResult.OK)
             {
+                Stop();
+                sthread.UnloadSong();
+                plist.clearSongs();
+                pctrl.updateButtons(SynthWaveProvider.PlayerState.Stopped);
+
                 if (!sthread.SongLoaded() && !sthread.SequencerStarted())
                 {
                     plist.addSongs(openFileDialog.FileNames, 0);
@@ -153,6 +163,7 @@ namespace DirectSoundDemo
             Synthesizer.InterpolationMode = (InterpolationEnum)Properties.Settings.Default.Interp;
             sthread = new SynthThread();
             sthread.Provider.TimeUpdate += new SynthWaveProvider.UpdateTime(pctrl.updateTime);
+            sthread.Provider.TimeUpdate += new SynthWaveProvider.UpdateTime(lasermuzak.updateTime);
             if (File.Exists(Properties.Settings.Default.BankFile))
             {
                 sthread.LoadBank(Properties.Settings.Default.BankFile);
@@ -190,6 +201,15 @@ namespace DirectSoundDemo
             final += "Total Buffer Size: " + total + " = " + (int)(val * 1000f) + "ms";
             MessageBox.Show(final);
         }
+        private void laserMuzakToolStripMenuItem_CheckedChanged(object sender, EventArgs e)
+        {
+            if (laserMuzakToolStripMenuItem.Checked)
+                lasermuzak.Visible = true;
+            else
+                lasermuzak.Visible = false;
+
+        }
+
         private void playListToolStripMenuItem_CheckedChanged(object sender, EventArgs e)
         {
             if (playListToolStripMenuItem.Checked)
@@ -197,6 +217,7 @@ namespace DirectSoundDemo
             else
                 plist.Visible = false;
             Properties.Settings.Default.show_plist = playListToolStripMenuItem.Checked;
+           
         }
         private void midiControlsToolStripMenuItem_CheckedChanged(object sender, EventArgs e)
         {
@@ -212,6 +233,7 @@ namespace DirectSoundDemo
                 sthread.Provider.UpdateMidiControllers -= new SynthWaveProvider.UpdateTrackBars(mctrol.updateMidiControls);
             }
             Properties.Settings.Default.show_mctrl = midiControlsToolStripMenuItem.Checked;
+            
         }      
         private void keyBoardToolStripMenuItem_CheckedChanged(object sender, EventArgs e)
         {
@@ -220,6 +242,7 @@ namespace DirectSoundDemo
             else
                 kctrl.Visible = false;
             Properties.Settings.Default.show_keyboard = keyBoardToolStripMenuItem.Checked;
+            
         }
         private void logToolStripMenuItem_CheckedChanged(object sender, EventArgs e)
         {
@@ -228,6 +251,7 @@ namespace DirectSoundDemo
             else
                 lctrl.Visible = false;
             Properties.Settings.Default.show_log = logToolStripMenuItem.Checked;
+            
         }
 
         private void aboutToolStripMenuItem_Click(object sender, EventArgs e)
@@ -323,6 +347,12 @@ namespace DirectSoundDemo
             }
         }
 
+        private void MainForm_MdiChildActivate(object sender, EventArgs e)
+        {
+            
+        }
+
+      
         //private void convertToolStripMenuItem_Click(object sender, EventArgs e)
         //{
         //    var synth = new Synthesizer(Properties.Settings.Default.SampleRate, 2, Properties.Settings.Default.BufferSize, Properties.Settings.Default.BufferCount, Properties.Settings.Default.poly);

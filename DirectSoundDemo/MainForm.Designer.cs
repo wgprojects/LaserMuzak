@@ -40,6 +40,7 @@
             this.toolStripSeparator3 = new System.Windows.Forms.ToolStripSeparator();
             this.exitToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.viewToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.laserMuzakToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.playListToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.midiControlsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.keyBoardToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -131,6 +132,7 @@
             // viewToolStripMenuItem
             // 
             this.viewToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.laserMuzakToolStripMenuItem,
             this.playListToolStripMenuItem,
             this.midiControlsToolStripMenuItem,
             this.keyBoardToolStripMenuItem,
@@ -138,6 +140,14 @@
             this.viewToolStripMenuItem.Name = "viewToolStripMenuItem";
             this.viewToolStripMenuItem.Size = new System.Drawing.Size(44, 20);
             this.viewToolStripMenuItem.Text = "View";
+            // 
+            // laserMuzakToolStripMenuItem
+            // 
+            this.laserMuzakToolStripMenuItem.CheckOnClick = true;
+            this.laserMuzakToolStripMenuItem.Name = "laserMuzakToolStripMenuItem";
+            this.laserMuzakToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.laserMuzakToolStripMenuItem.Text = "LaserMuzak";
+            this.laserMuzakToolStripMenuItem.CheckedChanged += new System.EventHandler(this.laserMuzakToolStripMenuItem_CheckedChanged);
             // 
             // playListToolStripMenuItem
             // 
@@ -182,7 +192,7 @@
             // optionsToolStripMenuItem
             // 
             this.optionsToolStripMenuItem.Name = "optionsToolStripMenuItem";
-            this.optionsToolStripMenuItem.Size = new System.Drawing.Size(125, 22);
+            this.optionsToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
             this.optionsToolStripMenuItem.Text = "&Options...";
             this.optionsToolStripMenuItem.Click += new System.EventHandler(this.optionsToolStripMenuItem_Click);
             // 
@@ -249,8 +259,10 @@
             this.MainMenuStrip = this.menuStrip;
             this.Name = "MainForm";
             this.Text = "DirectSound Demo";
+            this.WindowState = System.Windows.Forms.FormWindowState.Maximized;
             this.FormClosed += new System.Windows.Forms.FormClosedEventHandler(this.MainForm_FormClosed);
             this.Load += new System.EventHandler(this.MainForm_Load);
+            this.MdiChildActivate += new System.EventHandler(this.MainForm_MdiChildActivate);
             this.menuStrip.ResumeLayout(false);
             this.menuStrip.PerformLayout();
             this.statusStrip.ResumeLayout(false);
@@ -285,6 +297,7 @@
         private System.Windows.Forms.ToolStripStatusLabel toolStripStatusLabel1;
         private System.Windows.Forms.ToolStripMenuItem openPatchToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem convertToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem laserMuzakToolStripMenuItem;
     }
 }
 

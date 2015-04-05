@@ -58,10 +58,10 @@ namespace DirectSoundDemo
                     channels.Remove(255);
 
                 }
-                if (channels.Count == 0)
-                    this.MinimumSize = new Size(this.MinimumSize.Width, 100);
-                else
-                    this.MinimumSize = new Size(this.MinimumSize.Width, (15 + 1) * (channels.Count + 1));
+                //if (channels.Count == 0)
+                //    this.MinimumSize = new Size(this.MinimumSize.Width, 100);
+                //else
+                //    this.MinimumSize = new Size(this.MinimumSize.Width, (15 + 1) * (channels.Count + 1));
 
             }
         }
@@ -74,7 +74,7 @@ namespace DirectSoundDemo
         public Dictionary<byte, int> ChannelPriorities = new Dictionary<byte, int>();
 
         Dictionary<byte, int> RectTop = null;
-        double RectHeight = 1;
+        double RectHeight = 15;
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -103,8 +103,8 @@ namespace DirectSoundDemo
 
                 RectTop = new Dictionary<byte, int>();
                 RectHeight = (this.Height - channels.Count) / (double)(channels.Count + 1);
-                if (RectHeight < 1)
-                    RectHeight = 1;
+                if (RectHeight < 15)
+                    RectHeight = 15;
 
                 int i = 0;
                 foreach (byte channel in channels)
@@ -122,8 +122,10 @@ namespace DirectSoundDemo
                     i++;
                 }
 
-                e.Graphics.DrawString("Ch# | Pri" , new Font("Arial", 9), Brushes.Black, new Point(2, 2));
-                var lashd = e.Graphics.MeasureString("W", new Font("Arial", 9));
+                Font fontSmall = new Font("Arial", 9);
+                e.Graphics.DrawString("Ch#" , fontSmall, Brushes.Black, new Point(2, 2));
+                e.Graphics.DrawString("Pri", fontSmall, Brushes.Black, new Point(LeftPriMargin, 2));
+                var lashd = e.Graphics.MeasureString("W", fontSmall);
 
                 foreach (MidiMessage mm in mdata)
                 {
@@ -153,13 +155,38 @@ namespace DirectSoundDemo
 
                         if (numPixels >= 1)
                             e.Graphics.FillRectangle(GetBrush(last[mm.channel], minFreq, maxFreq), new RectangleF(startPixel, RectTop[mm.channel], (float)numPixels, (int)RectHeight));
-                            //e.Graphics.FillRectangle(GetBrush(last[mm.channel], minFreq, maxFreq), new RectangleF((float)currentPixel[mm.channel], RectTop[mm.channel], (float)numPixels, (int)RectHeight));
 
+                        if (mm.command == (int)MidiEventTypeEnum.NoteOff)
+                        {
+                            string noteText = LaserMuzak.GetNoteStr(mm.data1);
+                            var sz = e.Graphics.MeasureString(noteText, fontSmall);
+                            int noteTextOffset = 2;
+                            if (numPixels > sz.Width + 2 * noteTextOffset)
+                                e.Graphics.DrawString(noteText, fontSmall, Brushes.Black, new PointF(startPixel + noteTextOffset, (float)(RectTop[mm.channel] + (RectHeight - sz.Height) / 2)));
+                        }
+                          
                         currentPixel[mm.channel] += numPixels;
                         last[mm.channel] = mm;
                         lastTime[mm.channel] = time;
                     }
                 }
+
+                MidiMessage endMM = mdata[mdata.Length - 1];
+                double endTime = (double)endMM.delta;
+                foreach(var lastPerChannel in last)
+                {
+
+                    int channel = lastPerChannel.Key;
+                    MidiMessage mm = lastPerChannel.Value;
+                    
+                    float startPixel = (float)((lastTime[channel] - TimeOffset_us) / MicrosecPerPixel) + LeftMargin;
+                    double numPixels = (time - lastTime[channel]) / MicrosecPerPixel;
+
+                    if (numPixels >= 1)
+                        e.Graphics.FillRectangle(GetBrush(last[channel], minFreq, maxFreq), new RectangleF(startPixel, RectTop[(byte)channel], (float)numPixels, (int)RectHeight));
+                }
+
+
 
                 if (MicrosecPerPixel > 0)
                 {
@@ -188,6 +215,7 @@ namespace DirectSoundDemo
         public void Reset()
         {
             BrushCache = new Dictionary<byte, Brush>();
+            ChannelPriorities = new Dictionary<byte, int>();
         }
         static Dictionary<byte, Brush> BrushCache = new Dictionary<byte, Brush>();
         Brush GetBrush(MidiMessage m, byte minFreq, byte maxFreq)

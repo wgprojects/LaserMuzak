@@ -21,10 +21,10 @@ namespace DirectSoundDemo
         }
 
 
-        int time = -1;
+        int currentPlayingTime = -1;
         public void updateTime(int current, int max, int voices)
         {
-            time = current;
+            currentPlayingTime = current;
             noteViewer1.updateTime(current, max, voices);
         }
         private void LaserMuzak_Load(object sender, EventArgs e)
@@ -106,7 +106,7 @@ namespace DirectSoundDemo
 
                     bool silence = true;
 
-                    int sum = 0;
+                    //int sum = 0;
                     int lastTime = 0;
 
                     foreach (var e in events)
@@ -217,7 +217,7 @@ namespace DirectSoundDemo
             return String.Format("{0}/{1}", ticksPerBeat, duration_ticks);
         }
 
-        void GetNote(int midiFreq, out string note, out int octave)
+        public static void GetNote(int midiFreq, out string note, out int octave)
         {
             string[] notes = new string[] { "c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b" };
 
@@ -228,10 +228,115 @@ namespace DirectSoundDemo
 
         }
 
+        public static string GetNoteStr(int midiFreq)
+        {
+            string note;
+            int octave;
+            GetNote(midiFreq, out note, out octave);
+            return note + octave;
+
+        }
+
+
+        int nAxes = -1;
+        int octaveOffset = 0;
+        HashSet<byte> channels = new HashSet<byte>();
+
         private void btnSaveMuzak_Click(object sender, EventArgs e)
         {
+            if(st == null || st.mseq == null)
+            {
+                MessageBox.Show("Not loaded - aborting");
+                return;
+            }
+            AudioSynthesis.Sequencer.MidiFileSequencer mseq = st.mseq;
+            MidiMessage[] mdata = mseq.mdata;
+
+            bool useW = cbAxisW.Checked;
+            bool useY = cbAxisY.Checked;
+            bool useX = cbAxisX.Checked;
+
+            nAxes = 0;
+            if (useW)
+                nAxes++;
+            if (useY)
+                nAxes++;
+            if (useX)
+                nAxes++;
+
+            if(nAxes == 0)
+            {
+                MessageBox.Show("Select at least one axis");
+                return;
+            }
+
+
+
+
+
+            if (noteViewer1.ChannelPriorities.Count == 0)
+            {
+                MessageBox.Show("No channel priorities set - aborting.");
+                return;
+            }
+
+            int minPrioritiesSet = Math.Min(nAxes, channels.Count);
+
+            if (noteViewer1.ChannelPriorities.Count < minPrioritiesSet)
+            {
+                if (DialogResult.OK != MessageBox.Show("Not using all axes - fewer channels than axes - okay to continue?", "Confirm", MessageBoxButtons.OKCancel))
+                    return;
+            }
+
+
+
+
+            if (mseq != null && mseq.mdata != null)
+            {
+
+                byte minFreq = byte.MaxValue;
+                byte maxFreq = byte.MinValue;
+                double time;
+                foreach (MidiMessage mm in mdata)
+                {
+                    time = (double)mm.delta;
+                    if (!noteViewer1.ChannelPriorities.ContainsKey(mm.channel))
+                        continue;
+
+                    bool startOk = time >= noteViewer1.startTime || noteViewer1.startTime < 0;
+                    bool endOk = time <= noteViewer1.endTime || noteViewer1.endTime < 0;
+                    if (startOk && endOk)
+                    {
+                        if (mm.command == (int)MidiEventTypeEnum.NoteOn)
+                        {
+                            channels.Add(mm.channel);
+                            minFreq = Math.Min(minFreq, mm.data1);
+                            maxFreq = Math.Max(maxFreq, mm.data1);
+                        }
+                    }
+                }
+                channels.Remove(255);
+
+                if(maxFreq < minFreq)
+                {
+                    MessageBox.Show("No notes played between start and end times on the selected channels. Aborting.");
+                    return;
+                }
+                //Avoid frequencies too high for laser
+                string max = GetNoteStr(maxFreq);
+                if (DialogResult.No == MessageBox.Show("Highest frequency is " + max + "\r\nIs this okay?"))
+                {
+                    octaveOffset = -1;
+                }
+
+            }
+
+
+
+          
+
             SaveFileDialog sfd = new SaveFileDialog();
-            sfd.Filter = "*.muzak";
+            sfd.Filter = "*.muzak|*.muzak";
             sfd.InitialDirectory = Properties.Settings.Default.midi_path;
             if(DialogResult.OK == sfd.ShowDialog())
             {
@@ -244,7 +349,164 @@ namespace DirectSoundDemo
 
         private void SaveMuzak(string filename)
         {
+            bool useW = cbAxisW.Checked;
+            bool useY = cbAxisY.Checked;
+            bool useX = cbAxisX.Checked;
+
+
+            AudioSynthesis.Sequencer.MidiFileSequencer mseq = st.mseq;
+            MidiMessage[] mdata = mseq.mdata;
             
+            double time = 0;
+            int maxPixel = this.Width;
+
+            Dictionary<int, MidiMessage> last = new Dictionary<int,MidiMessage>();
+            Dictionary<int, double> lastTime = new Dictionary<int,double>();
+
+           
+
+
+            Dictionary<byte, int> priorities = noteViewer1.ChannelPriorities;
+
+
+            
+          
+
+            //<midiFreq, 
+            int[] axisPlayingPriority = new int[nAxes];
+            Array.Clear(axisPlayingPriority, 0, nAxes);
+
+            SortedDictionary<int, List<MuzakNote>> currentNotes = new SortedDictionary<int, List<MuzakNote>>();
+
+
+            //List<MuzakNote>[] currentlyPlaying = new List<MuzakNote>[nAxes];
+            //for (int i = 0; i < nAxes; i++)
+            //    currentlyPlaying[i] = new List<MuzakNote>();
+
+                foreach (MidiMessage mm in mdata)
+                {
+                    if (mm.channel == 255)
+                        continue;
+
+                    time = (double)mm.delta;
+                    if (!noteViewer1.ChannelPriorities.ContainsKey(mm.channel))
+                        continue;
+
+
+                    bool startOk = time >= noteViewer1.startTime || noteViewer1.startTime < 0;
+                    bool endOk = time <= noteViewer1.endTime || noteViewer1.endTime < 0;
+                    if (startOk && endOk)
+                    {
+
+                        if (lastTime.Count == 0)
+                            foreach (var c in channels)
+                                lastTime.Add(c, time);
+
+                        if (!last.ContainsKey(mm.channel))
+                        {
+                            last.Add(mm.channel, new MidiMessage(mm.channel, 0, 0, 0));
+                        }
+
+                        
+                       
+                        
+                        long us = (long)(time - lastTime[mm.channel]);
+
+                        if (mm.command == (int)MidiEventTypeEnum.NoteOff)
+                        {
+                            MuzakNote toEnd = null;
+                            bool multipleNotes = false;
+                            foreach(var notes in currentNotes.Values)
+                            {
+                                foreach(var note in notes)
+                                {
+                                    if(note.channel == mm.channel && note.midiFreq == mm.data1)
+                                    {
+                                        toEnd = note;
+                                        multipleNotes = notes.Count > 1;
+                                    }
+                                }
+                            }
+
+                            if (toEnd != null)
+                            {
+                                if (multipleNotes)
+                                {
+                                    currentNotes[toEnd.priority].Remove(toEnd); //Remove note from list at this priority
+                                }
+                                else
+                                {
+                                    currentNotes.Remove(toEnd.priority); //Remove this entire priority
+                                }
+                            }
+                        }
+                        else if (mm.command == (int)MidiEventTypeEnum.NoteOn)
+                        {
+                            int pri = priorities[mm.channel];
+                            var toStart = new MuzakNote(mm.data1, pri, mm.channel);
+                            
+                            if(currentNotes.ContainsKey(pri))
+                            {
+                                currentNotes[pri].Add(toStart);
+                            }
+                            else
+                            {
+                                currentNotes.Add(pri, new List<MuzakNote>() { toStart });
+                            }
+                        }
+
+
+                       
+
+                            //Dictionary<byte, MuzakNote> best = new Dictionary<byte, MuzakNote>();
+                        //foreach (byte ch in channels)
+                        //    if(currentlyPlaying[ch] != null)
+                        //    {
+                        //        best.Add(ch, currentlyPlaying[ch]);
+                        //    }
+                        //best.OrderBy(kp => (priorities[kp.Key])).Take(nAxes);
+
+
+                        if (mm.command == (int)MidiEventTypeEnum.NoteOn || mm.command == (int)MidiEventTypeEnum.NoteOff)
+                        {
+                            
+                            List<List<MuzakNote>> toOutput = new List<List<MuzakNote>>();
+                            foreach (int pri in currentNotes.Keys)
+                            {
+                                toOutput.Add(currentNotes[pri]);
+
+                                Console.Write(String.Join(", ", currentNotes[pri]) + " | ");
+                            }
+                            Console.WriteLine("");
+                            
+
+                        }
+
+                        last[mm.channel] = mm;
+                        lastTime[mm.channel] = time;
+                    }
+                }
+
+            //if (MicrosecPerPixel > 0)
+            //{
+            //    float timeX = (float)(LeftMargin + ((currTime) - TimeOffset_us) / MicrosecPerPixel);
+            //    e.Graphics.DrawLine(Pens.Green, timeX, 0, timeX, this.Height);
+
+            //    if (startTime >= 0)
+            //    {
+            //        timeX = (float)(LeftMargin + ((startTime) - TimeOffset_us) / MicrosecPerPixel);
+            //        e.Graphics.DrawLine(Pens.White, timeX, 0, timeX, this.Height);
+            //    }
+
+            //    if (endTime >= 0)
+            //    {
+            //        timeX = (float)(LeftMargin + ((endTime) - TimeOffset_us) / MicrosecPerPixel);
+            //        e.Graphics.DrawLine(Pens.White, timeX, 0, timeX, this.Height);
+            //    }
+            //}
+
+        
+        
         }
 
         SynthThread st;
@@ -253,6 +515,7 @@ namespace DirectSoundDemo
             MainForm pform = (MainForm)this.MdiParent;
             st = pform.sthread;
             AudioSynthesis.Sequencer.MidiFileSequencer mseq = st.mseq;
+            mseq.UnMuteAllChannels();
             MidiMessage[] mdata = mseq.mdata;
 
             noteViewer1.Reset();
@@ -324,8 +587,8 @@ namespace DirectSoundDemo
             if (st != null && st.mseq != null && st.mseq.IsPlaying)
             {
 
-                decimal desired = (decimal)(time - width_us * 2 / 8);
-                if ((double)(desired - nudOffset.Value) > width_us / 2 || nudOffset.Value > desired)
+                decimal desired = (decimal)(currentPlayingTime - width_us * 1 / 8);
+                if ((double)(desired - nudOffset.Value) > width_us * 3 / 4 || nudOffset.Value > desired)
                 {
                     if (desired < 0)
                         desired = 0;
@@ -445,4 +708,46 @@ namespace DirectSoundDemo
 
         
     }
+
+
+    public class MuzakNote
+    {
+        public static MuzakNote Delay(long _length, byte _channel)
+        {
+            MuzakNote n = new MuzakNote(0, _length, 0, _channel);
+            return n;
+        }
+        public MuzakNote(int _midiFreq, long _length, int _pri, byte _channel)
+        {
+            midiFreq = _midiFreq;
+            length = _length;
+            priority = _pri;
+            channel = _channel;
+        }
+
+        public MuzakNote(int _midiFreq, int _pri, byte _channel)
+        {
+            midiFreq = _midiFreq;
+            priority = _pri;
+            channel = _channel;
+        }
+
+        public int midiFreq;
+        public long length; //us
+        public int priority;
+        public byte channel;
+
+        public override string ToString()
+        {
+            if(midiFreq == 0)
+            {
+                return "." + length.ToString();
+            }
+            else
+            {
+                return String.Format("freq{0} for {1}us on ch{2} with pri{3}", midiFreq, length, channel, priority);
+            }
+        }
+    }
+
 }

@@ -350,7 +350,7 @@ namespace DirectSoundDemo
                     if(dr == DialogResult.Abort)
                         return;
                     else if(dr == DialogResult.Retry)
-                        octaveOffset = LASER_MAX_OCTAVE - octave;
+                        octaveOffset = LASER_MAX_OCTAVE - octave - 1;
                     else if(dr == DialogResult.Ignore)
                         octaveOffset = 0;
                 }
@@ -638,7 +638,7 @@ namespace DirectSoundDemo
         {
             op.WriteLine("#######################################################");
             op.WriteLine(AxisIdentifier);
-            int lastOctave = 4;
+            int lastOctave = -1;
             int noteNum = 0;
             foreach(var note in notes)
             {
@@ -653,7 +653,7 @@ namespace DirectSoundDemo
 
                 octave += octaveOffset;
 
-                if (octave >= 1 && octave <= 8)
+                if (octave >= 0 && octave <= 8)
                 {
                     if (octave != lastOctave)
                     {
@@ -661,9 +661,15 @@ namespace DirectSoundDemo
                         lastOctave = octave;
                     }
                 }
-                if ((octave >= 1 && octave <= 8) || midiFreq == 0)
+                if ((octave >= 0 && octave <= 8) || midiFreq == 0)
                 {
                     string str = String.Format("{0}44100/{1:00000} \t\t\t#{3:00000}: {0}{2} (m.f. {5}) {4:0.000} sec", noteStr, duration, midiFreq == 0 ? "" : octave.ToString(), noteNum, duration/44100f, midiFreq);
+                    op.WriteLine(str);
+                }
+                else
+                {
+                    //Replace note with delay - too far out of range.
+                    string str = String.Format(".44100/{1:00000} \t\t\t#{3:00000}: {0}{2} (m.f. {5}) {4:0.000} sec", noteStr, duration, midiFreq == 0 ? "" : octave.ToString(), noteNum, duration / 44100f, midiFreq);
                     op.WriteLine(str);
                 }
             }

@@ -145,7 +145,7 @@
             // 
             this.laserMuzakToolStripMenuItem.CheckOnClick = true;
             this.laserMuzakToolStripMenuItem.Name = "laserMuzakToolStripMenuItem";
-            this.laserMuzakToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.laserMuzakToolStripMenuItem.Size = new System.Drawing.Size(143, 22);
             this.laserMuzakToolStripMenuItem.Text = "LaserMuzak";
             this.laserMuzakToolStripMenuItem.CheckedChanged += new System.EventHandler(this.laserMuzakToolStripMenuItem_CheckedChanged);
             // 
@@ -153,7 +153,7 @@
             // 
             this.playListToolStripMenuItem.CheckOnClick = true;
             this.playListToolStripMenuItem.Name = "playListToolStripMenuItem";
-            this.playListToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.playListToolStripMenuItem.Size = new System.Drawing.Size(143, 22);
             this.playListToolStripMenuItem.Text = "PlayList";
             this.playListToolStripMenuItem.CheckedChanged += new System.EventHandler(this.playListToolStripMenuItem_CheckedChanged);
             // 
@@ -161,7 +161,7 @@
             // 
             this.midiControlsToolStripMenuItem.CheckOnClick = true;
             this.midiControlsToolStripMenuItem.Name = "midiControlsToolStripMenuItem";
-            this.midiControlsToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.midiControlsToolStripMenuItem.Size = new System.Drawing.Size(143, 22);
             this.midiControlsToolStripMenuItem.Text = "MidiControls";
             this.midiControlsToolStripMenuItem.CheckedChanged += new System.EventHandler(this.midiControlsToolStripMenuItem_CheckedChanged);
             // 
@@ -169,7 +169,7 @@
             // 
             this.keyBoardToolStripMenuItem.CheckOnClick = true;
             this.keyBoardToolStripMenuItem.Name = "keyBoardToolStripMenuItem";
-            this.keyBoardToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.keyBoardToolStripMenuItem.Size = new System.Drawing.Size(143, 22);
             this.keyBoardToolStripMenuItem.Text = "KeyBoard";
             this.keyBoardToolStripMenuItem.CheckedChanged += new System.EventHandler(this.keyBoardToolStripMenuItem_CheckedChanged);
             // 
@@ -177,7 +177,7 @@
             // 
             this.logToolStripMenuItem.CheckOnClick = true;
             this.logToolStripMenuItem.Name = "logToolStripMenuItem";
-            this.logToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.logToolStripMenuItem.Size = new System.Drawing.Size(143, 22);
             this.logToolStripMenuItem.Text = "Log";
             this.logToolStripMenuItem.CheckedChanged += new System.EventHandler(this.logToolStripMenuItem_CheckedChanged);
             // 
@@ -192,7 +192,7 @@
             // optionsToolStripMenuItem
             // 
             this.optionsToolStripMenuItem.Name = "optionsToolStripMenuItem";
-            this.optionsToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.optionsToolStripMenuItem.Size = new System.Drawing.Size(125, 22);
             this.optionsToolStripMenuItem.Text = "&Options...";
             this.optionsToolStripMenuItem.Click += new System.EventHandler(this.optionsToolStripMenuItem_Click);
             // 
@@ -258,11 +258,12 @@
             this.IsMdiContainer = true;
             this.MainMenuStrip = this.menuStrip;
             this.Name = "MainForm";
-            this.Text = "DirectSound Demo";
+            this.Text = "C# Synth";
             this.WindowState = System.Windows.Forms.FormWindowState.Maximized;
             this.FormClosed += new System.Windows.Forms.FormClosedEventHandler(this.MainForm_FormClosed);
             this.Load += new System.EventHandler(this.MainForm_Load);
             this.MdiChildActivate += new System.EventHandler(this.MainForm_MdiChildActivate);
+            this.Shown += new System.EventHandler(this.MainForm_Shown);
             this.menuStrip.ResumeLayout(false);
             this.menuStrip.PerformLayout();
             this.statusStrip.ResumeLayout(false);

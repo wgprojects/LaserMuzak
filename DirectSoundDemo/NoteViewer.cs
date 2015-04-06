@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using AudioSynthesis.Synthesis;
 using AudioSynthesis.Midi;
+using System.Diagnostics;
 
 namespace DirectSoundDemo
 {
@@ -19,8 +20,8 @@ namespace DirectSoundDemo
             InitializeComponent();
             this.DoubleBuffered = true;
 
-            TimeOffset_us = 0;
-            MicrosecPerPixel = (1000 / 1) * 1000; //1px per 1s)
+            TimeOffset_samples = 0;
+            SamplesPerPixel = (1000 / 1) * 1000; //1px per 1s)
 
             startTime = -1;
             endTime = -1;
@@ -28,6 +29,7 @@ namespace DirectSoundDemo
 
 
         HashSet<byte> channels = new HashSet<byte>();
+        Dictionary<byte, int> chordCount = new Dictionary<byte, int>(); //How many simultaneous notes played, by channel
         byte minFreq = byte.MaxValue;
         byte maxFreq = byte.MinValue;
 
@@ -39,6 +41,9 @@ namespace DirectSoundDemo
             {
                 _mseq = value;
 
+                Dictionary<byte, int> currentChordCount = new Dictionary<byte, int>();
+                chordCount = new Dictionary<byte, int>();
+
                 channels = new HashSet<byte>();
                 if (_mseq != null &&  _mseq.mdata != null)
                 {
@@ -48,14 +53,38 @@ namespace DirectSoundDemo
                     maxFreq = byte.MinValue;
                     foreach (MidiMessage mm in mdata)
                     {
-                        channels.Add(mm.channel);
                         if (mm.command == (int)MidiEventTypeEnum.NoteOn)
                         {
+                            channels.Add(mm.channel);
                             minFreq = Math.Min(minFreq, mm.data1);
                             maxFreq = Math.Max(maxFreq, mm.data1);
+
+                            if(currentChordCount.ContainsKey(mm.channel))
+                            {
+                                currentChordCount[mm.channel]++;
+                            }
+                            else
+                            {
+                                currentChordCount.Add(mm.channel, 1);
+                            }
+                        }
+                        else if (mm.command == (int)MidiEventTypeEnum.NoteOff)
+                        {
+                            if(currentChordCount.ContainsKey(mm.channel))
+                            {
+                                
+                                if (!chordCount.ContainsKey(mm.channel) || currentChordCount[mm.channel] > chordCount[mm.channel])
+                                {
+                                    chordCount.Remove(mm.channel);
+                                    chordCount.Add(mm.channel, currentChordCount[mm.channel]);
+                                }
+                                currentChordCount[mm.channel]--;
+                            }
                         }
                     }
                     channels.Remove(255);
+                    if (maxFreq == minFreq)
+                        maxFreq += 1;
 
                 }
                 //if (channels.Count == 0)
@@ -65,12 +94,12 @@ namespace DirectSoundDemo
 
             }
         }
-        public double TimeOffset_us { get; set; }
-        public double MicrosecPerPixel { get; set; }
+        public double TimeOffset_samples { get; set; }
+        public double SamplesPerPixel { get; set; }
         public long startTime { get; set; }
         public long endTime { get; set; }
-        private int LeftMargin = 80;
-        private int LeftPriMargin = 40;
+        private int LeftMargin = 100;
+        private int LeftPriMargin = 50;
         public Dictionary<byte, int> ChannelPriorities = new Dictionary<byte, int>();
 
         Dictionary<byte, int> RectTop = null;
@@ -82,7 +111,7 @@ namespace DirectSoundDemo
 
             if (mseq == null || mseq.mdata == null)
             {
-                string message = "No data - Load a midi file, then press Load here in LaserMuzak";
+                string message = "No data - Load a midi file to view notes";
                 Font f = new Font("Arial", 12);
 
                 var sz = e.Graphics.MeasureString(message, f);
@@ -94,9 +123,10 @@ namespace DirectSoundDemo
                 double time = 0;
                 int maxPixel = this.Width;
 
-                Dictionary<int, MidiMessage> last = new Dictionary<int,MidiMessage>();
-                Dictionary<int, double> currentPixel = new Dictionary<int, double>();
-                Dictionary<int, double> lastTime = new Dictionary<int,double>();
+                //Dictionary<int, List<Tuple<double, MidiMessage>>> last = new Dictionary<int, List<Tuple<double, MidiMessage>>>();
+                Dictionary<int, List<Nullable<MidiMessage>>> last = new Dictionary<int, List<MidiMessage?>>();
+                //Dictionary<int, double> currentPixel = new Dictionary<int, double>();
+                //Dictionary<int, List<double>> lastTime = new Dictionary<int,List<double>>();
 
                 
 
@@ -106,26 +136,38 @@ namespace DirectSoundDemo
                 if (RectHeight < 15)
                     RectHeight = 15;
 
+
+                Font fontSmall = new System.Drawing.Font("Arial", 9);
+                Font fontLarge = new System.Drawing.Font("Arial", 9);
+                for (int fSz = 6; fSz < 24; fSz++)
+                {
+                    Font newFont = new System.Drawing.Font("Arial", fSz);
+                    SizeF sz = e.Graphics.MeasureString("MMM", newFont);
+                    if (sz.Height < RectHeight / 2 && sz.Width < (LeftPriMargin) && sz.Width < (LeftMargin - LeftPriMargin))
+                        fontLarge = newFont;
+                }
+
+                var lashd = e.Graphics.MeasureString("M", fontSmall);
+
                 int i = 0;
                 foreach (byte channel in channels)
                 {
                     RectTop[channel] = (int)Math.Round((i + 1) * (RectHeight + 1));
-                    e.Graphics.DrawString(channel.ToString(), new Font("Arial", 9), mseq.IsChannelMuted(channel)?Brushes.Red : Brushes.Green, new Point(2, RectTop[channel]));
+                    e.Graphics.DrawString(channel.ToString(), fontLarge, mseq.IsChannelMuted(channel) ? Brushes.Red : Brushes.Green, new Point(2, RectTop[channel] + (int)((RectHeight - lashd.Height) / 2)));
 
                     if(ChannelPriorities.ContainsKey(channel))
                     {
                         int pri = ChannelPriorities[channel];
-                        e.Graphics.DrawString(pri.ToString(), new Font("Arial", 9), mseq.IsChannelMuted(channel) ? Brushes.Red : Brushes.Green, new Point(LeftPriMargin, RectTop[channel]));
+                        e.Graphics.DrawString(pri.ToString(), fontLarge, mseq.IsChannelMuted(channel) ? Brushes.Red : Brushes.Green, new Point(LeftPriMargin, RectTop[channel] + (int)((RectHeight - lashd.Height) / 2)));
 
 
                     }
                     i++;
                 }
-
-                Font fontSmall = new Font("Arial", 9);
+                
                 e.Graphics.DrawString("Ch#" , fontSmall, Brushes.Black, new Point(2, 2));
                 e.Graphics.DrawString("Pri", fontSmall, Brushes.Black, new Point(LeftPriMargin, 2));
-                var lashd = e.Graphics.MeasureString("W", fontSmall);
+                
 
                 foreach (MidiMessage mm in mdata)
                 {
@@ -134,74 +176,131 @@ namespace DirectSoundDemo
                     
                     time = (double)mm.delta;
                     
-                    if (time >= TimeOffset_us)
+                    bool drawStart = time >= TimeOffset_samples - this.Width * SamplesPerPixel;
+                    bool drawEnd = time >= TimeOffset_samples + 2 * this.Width * SamplesPerPixel;
+
+                    if (drawEnd)
+                        break;
+                    if (drawStart)
                     {
 
-                        if (lastTime.Count == 0)
-                            foreach (var c in channels)
-                                lastTime.Add(c, time);
-
-                        if (!last.ContainsKey(mm.channel))
+                        if (last.ContainsKey(mm.channel))
                         {
-                            last.Add(mm.channel, new MidiMessage(mm.channel, 0, 0, 0));
-                            currentPixel.Add(mm.channel, LeftMargin);
-                            //lastTime.Add(mm.channel, time);
+                            var thisChannel = last[mm.channel];
+                            var previous = thisChannel.FirstOrDefault(pmm => pmm.Value.data1 == mm.data1);
+                            if (previous == null || previous.Value.data1 == 0)
+                            {
+                                previous = null;
+                            }
+                            
+
+                            if (previous != null)
+                            {
+                                MidiMessage prev = previous.Value;
+
+
+                                float startPixel = (float)((prev.delta - TimeOffset_samples) / SamplesPerPixel) + LeftMargin;
+                                double numPixels = (time - prev.delta) / SamplesPerPixel;
+
+                                float height = (float)(RectHeight / (chordCount[mm.channel]));
+                                int index = thisChannel.Count - 1;
+                                float yOffset = RectTop[mm.channel] + index * height;
+
+                                
+                                RectangleF noteRect = new RectangleF(startPixel, yOffset, (float)numPixels, height);
+
+                                //if (thisChannel.Count > 1)
+                                //{
+                                //    Trace.WriteLine(String.Format("Note {0} drawn in rectangle {1} with idx {2}.", mm, noteRect, index));
+                                //}
+
+                                if (noteRect.Right > LeftMargin)
+                                {
+                                    if (noteRect.Left < LeftMargin)
+                                        noteRect = new RectangleF(LeftMargin, noteRect.Top, noteRect.Right - LeftMargin, noteRect.Height);
+
+                                    if (numPixels >= 1)
+                                        e.Graphics.FillRectangle(GetBrush(prev, minFreq, maxFreq), noteRect);
+                                }
+
+                                if (mm.command == (int)MidiEventTypeEnum.NoteOff)
+                                {
+                                    
+                                    string noteText = LaserMuzak.GetNoteStr(mm.data1);
+                                    var sz = e.Graphics.MeasureString(noteText, fontSmall);
+                                    int noteTextOffset = 1;
+                                    if (numPixels > sz.Width + 2 * noteTextOffset && height >  sz.Height + 2 * noteTextOffset)
+                                    {
+                                        PointF loc = new PointF(startPixel + noteTextOffset, (float)yOffset + (height - sz.Height) / 2);
+                                        if(loc.X > LeftMargin)
+                                            e.Graphics.DrawString(noteText, fontSmall, Brushes.Black, loc);
+                                    }
+
+                                    last[mm.channel].Remove(prev);
+                                }
+                            }
                         }
 
-
-
-                        float startPixel = (float)((lastTime[mm.channel] - TimeOffset_us) / MicrosecPerPixel) + LeftMargin;
-                        double numPixels = (time - lastTime[mm.channel]) / MicrosecPerPixel;
-
-                        if (numPixels >= 1)
-                            e.Graphics.FillRectangle(GetBrush(last[mm.channel], minFreq, maxFreq), new RectangleF(startPixel, RectTop[mm.channel], (float)numPixels, (int)RectHeight));
-
-                        if (mm.command == (int)MidiEventTypeEnum.NoteOff)
+                        //while(last.Count > 1)
+                        //    last[mm.channel].RemoveAt(0);
+                        
+                        if (mm.command == (int)MidiEventTypeEnum.NoteOn)
                         {
-                            string noteText = LaserMuzak.GetNoteStr(mm.data1);
-                            var sz = e.Graphics.MeasureString(noteText, fontSmall);
-                            int noteTextOffset = 2;
-                            if (numPixels > sz.Width + 2 * noteTextOffset)
-                                e.Graphics.DrawString(noteText, fontSmall, Brushes.Black, new PointF(startPixel + noteTextOffset, (float)(RectTop[mm.channel] + (RectHeight - sz.Height) / 2)));
+                            if (last.ContainsKey(mm.channel))
+                                last[mm.channel].Add(mm);
+                            else
+                                last.Add(mm.channel, new List<MidiMessage?>(){mm});
                         }
                           
-                        currentPixel[mm.channel] += numPixels;
-                        last[mm.channel] = mm;
-                        lastTime[mm.channel] = time;
+                        //currentPixel[mm.channel] += numPixels;
+                        //lastTime[mm.channel] = time;
                     }
                 }
 
+                foreach (var Y in RectTop.Values)
+                    e.Graphics.DrawLine(Pens.Black, 0, Y, this.Width, Y);
+
+                e.Graphics.DrawLine(Pens.Black, LeftMargin, 0, LeftMargin, this.Height);
+                e.Graphics.DrawLine(Pens.Black, LeftPriMargin, 0, LeftPriMargin, this.Height);
+
                 MidiMessage endMM = mdata[mdata.Length - 1];
-                double endTime = (double)endMM.delta;
-                foreach(var lastPerChannel in last)
+                double lastTime = (double)endMM.delta;
+                foreach(var ch in last.Keys)
                 {
+                    var thisChannel = last[ch];
+                    foreach (var previous in thisChannel)
+                    {
+                        var prev = previous.Value;
 
-                    int channel = lastPerChannel.Key;
-                    MidiMessage mm = lastPerChannel.Value;
-                    
-                    float startPixel = (float)((lastTime[channel] - TimeOffset_us) / MicrosecPerPixel) + LeftMargin;
-                    double numPixels = (time - lastTime[channel]) / MicrosecPerPixel;
+                        float startPixel = (float)((prev.delta - TimeOffset_samples) / SamplesPerPixel) + LeftMargin;
+                        double numPixels = (time - prev.delta) / SamplesPerPixel;
 
-                    if (numPixels >= 1)
-                        e.Graphics.FillRectangle(GetBrush(last[channel], minFreq, maxFreq), new RectangleF(startPixel, RectTop[(byte)channel], (float)numPixels, (int)RectHeight));
+                        float height = (float)(RectHeight / (thisChannel.Count));
+                        int index = thisChannel.IndexOf(previous);
+                        float yOffset = RectTop[(byte)ch] + index * height;
+
+                        if (numPixels >= 1)
+                            e.Graphics.FillRectangle(GetBrush(prev, minFreq, maxFreq), new RectangleF(startPixel, yOffset, (float)numPixels, height));
+                    }
+
                 }
 
 
 
-                if (MicrosecPerPixel > 0)
+                if (SamplesPerPixel > 0)
                 {
-                    float timeX = (float)(LeftMargin + ((currTime) - TimeOffset_us) / MicrosecPerPixel);
+                    float timeX = (float)(LeftMargin + ((currTime) - TimeOffset_samples) / SamplesPerPixel);
                     e.Graphics.DrawLine(Pens.Green, timeX, 0, timeX, this.Height);
 
                     if (startTime >= 0)
                     {
-                        timeX = (float)(LeftMargin + ((startTime) - TimeOffset_us) / MicrosecPerPixel);
+                        timeX = (float)(LeftMargin + ((startTime) - TimeOffset_samples) / SamplesPerPixel);
                         e.Graphics.DrawLine(Pens.White, timeX, 0, timeX, this.Height);
                     }
 
                     if (endTime >= 0)
                     {
-                        timeX = (float)(LeftMargin + ((endTime) - TimeOffset_us) / MicrosecPerPixel);
+                        timeX = (float)(LeftMargin + ((endTime) - TimeOffset_samples) / SamplesPerPixel);
                         e.Graphics.DrawLine(Pens.White, timeX, 0, timeX, this.Height);
                     }
                 }
@@ -419,7 +518,7 @@ namespace DirectSoundDemo
 
 
 
-            if (e.X < LeftMargin)
+            if (e.X < LeftPriMargin)
             {
                 if (RectTop != null)
                 {
@@ -429,13 +528,16 @@ namespace DirectSoundDemo
             }
             else
             {
-                double seek_us = TimeOffset_us + (e.X - LeftMargin) * MicrosecPerPixel;
-                long seek = (long)seek_us;
+                double seek_samp = TimeOffset_samples + (e.X - LeftMargin) * SamplesPerPixel;
+                long seek = (long)seek_samp;
                 OnTimeSeek(seek, chClicked);
 
-                if (mseq != null)
+                if (seek_samp > 0)
                 {
-                    mseq.Seek(new TimeSpan((long)(seek_us * 230))); //No idea where the factor of 230 comes from. Empirically determined.
+                    if (mseq != null)
+                    {
+                        mseq.Seek(new TimeSpan((long)(seek_samp * 230))); //No idea where the factor of 230 comes from. Empirically determined.
+                    }
                 }
             }
 

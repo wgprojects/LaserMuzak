@@ -27,11 +27,24 @@ namespace DirectSoundDemo
             currentPlayingTime = current;
             noteViewer1.updateTime(current, max, voices);
         }
+
+
         private void LaserMuzak_Load(object sender, EventArgs e)
         {
-
+            cbChordImitation.Items.Clear();
+            cbChordImitation.Items.Add(ChordImitationMode.HighestThenLowest);
+            cbChordImitation.Items.Add(ChordImitationMode.RoundRobin_5ms);
+            cbChordImitation.Items.Add(ChordImitationMode.RoundRobin_20ms);
+            cbChordImitation.SelectedIndex = 0;
         }
 
+        enum ChordImitationMode : int
+        {
+            HighestThenLowest = 0,
+            RoundRobin_5ms = 1,
+            RoundRobin_20ms = 2
+
+        }
 
 
 
@@ -240,6 +253,7 @@ namespace DirectSoundDemo
 
         int nAxes = -1;
         int octaveOffset = 0;
+        int LASER_MAX_OCTAVE = 6; //Needs experimentation
         HashSet<byte> channels = new HashSet<byte>();
 
         private void btnSaveMuzak_Click(object sender, EventArgs e)
@@ -323,10 +337,22 @@ namespace DirectSoundDemo
                     return;
                 }
                 //Avoid frequencies too high for laser
-                string max = GetNoteStr(maxFreq);
-                if (DialogResult.No == MessageBox.Show("Highest frequency is " + max + "\r\nIs this okay?"))
+
+                int octave;
+                string note;
+                GetNote(maxFreq, out note, out octave);
+
+                
+                if (octave >= 6)
                 {
-                    octaveOffset = -1;
+                    string max = GetNoteStr(maxFreq);
+                    DialogResult dr = MessageBox.Show("Highest frequency is " + max + "\r\nTo cut off higher notes, hit Ignore.\r\nTo shift down octaves, hit Retry.", "Pitch too high", MessageBoxButtons.AbortRetryIgnore);
+                    if(dr == DialogResult.Abort)
+                        return;
+                    else if(dr == DialogResult.Retry)
+                        octaveOffset = LASER_MAX_OCTAVE - octave;
+                    else if(dr == DialogResult.Ignore)
+                        octaveOffset = 0;
                 }
 
             }
@@ -336,6 +362,8 @@ namespace DirectSoundDemo
           
 
             SaveFileDialog sfd = new SaveFileDialog();
+
+            sfd.FileName = midiFileName + ".muzak";
             sfd.Filter = "*.muzak|*.muzak";
             sfd.InitialDirectory = Properties.Settings.Default.midi_path;
             if(DialogResult.OK == sfd.ShowDialog())
@@ -347,13 +375,302 @@ namespace DirectSoundDemo
             //SaveMuzak(mf, path);
         }
 
-        private void SaveMuzak(string filename)
+        private void WriteMuzak(string filename, Dictionary<int, Tuple<int, List<Tuple<int, int>>>> muzak)
         {
+            //muzak = Dictionary<timestamp, Tuple<Duration, List<Tuple<priority, midiFreq>>>>
+            //i.e. the song is divided into pieces of time, where each slice has a number of notes that should play.
+            //We'll try to play them in priority order, depending on chords and what was playing previously...
+
             bool useW = cbAxisW.Checked;
             bool useY = cbAxisY.Checked;
             bool useX = cbAxisX.Checked;
+            bool noteSplittingDisable = cbNoteSplitting.Checked;
+            ChordImitationMode chordImitation = (ChordImitationMode)cbChordImitation.SelectedIndex;
+            int NO_SOUND = 0;
+
+            if(muzak.Count == 0)
+            {
+                MessageBox.Show("No music to write! Aborting.");
+                return;
+            }
+
+            var first = muzak.First();
+            while (first.Value.Item2.Count == 0)
+            {
+                muzak.Remove(first.Key);
+                first = muzak.First();
+            }
+
+            int timeOffset = first.Key;
+
+            List<List<Tuple<int, int>>> muzakByAxis = new List<List<Tuple<int, int>>>();
+            //Each axis is a List<Tuple<int, int>>, a list of notes
+            //Each note is a Tuple<duration, midiFreq>
+            for (int axis = 0; axis < nAxes; axis++)
+                muzakByAxis.Add(new List<Tuple<int, int>>());
+
+            int lastTimeStamp = 0;
+            foreach (var timeSlice in muzak)
+            {
+                var notes = timeSlice.Value.Item2; //Each note is a Tuple<Priority, MidiFreq>
+                var duration = timeSlice.Value.Item1;
+                int time = timeSlice.Key - timeOffset;
+                //int duration = time - lastTimeStamp;
+                
+                if (notes.Count <= nAxes)
+                {
+                    //Easy case
+                    var sortedNotes = notes.OrderBy(n => n.Item2).ToList(); //Sort by frequency
+                    for(int axis = 0; axis < nAxes; axis++)
+                    {
+                        if (axis < sortedNotes.Count)
+                            muzakByAxis[axis].Add(new Tuple<int, int>(duration, sortedNotes[axis].Item2));
+                        else
+                            muzakByAxis[axis].Add(new Tuple<int,int>(duration, NO_SOUND));
+                    }
+                        
+                }
+                else
+                {
+                    SortedSet<int> priorities = new SortedSet<int>();
+                    foreach (var note in notes)
+                        if(!priorities.Contains(note.Item1))
+                            priorities.Add(note.Item1);
+
+                    int nPri = priorities.Count;
+
+                    switch (chordImitation)
+                    {
+                        case ChordImitationMode.HighestThenLowest:
+                            ChordImitate_HighLow(notes, duration, muzakByAxis, priorities);
+                            break;
+                        case ChordImitationMode.RoundRobin_5ms:
+                            ChordImitate_RoundRobin(notes, duration, muzakByAxis, priorities, 5);
+                            break;
+                        case ChordImitationMode.RoundRobin_20ms:
+                            ChordImitate_RoundRobin(notes, duration, muzakByAxis, priorities, 20);
+                            break;
+                        default:
+                            MessageBox.Show("Chord detected - please set the Chord Imitation mode. Aborting..");
+                            return;
+                    }
 
 
+                    //for (int axis = 0; axis < nAxes; axis++)
+                    //{
+                    //    muzakByAxis[axis].Add(new Tuple<int, int>(duration, NO_SOUND));
+                    //}
+
+                }
+                lastTimeStamp = time;
+            }
+            using (StreamWriter op = new StreamWriter(filename))
+            {
+                op.WriteLine("t120 #Does this work?");
+
+                int axis = 0;
+                if(useW)
+                {
+                    WriteMuzakAxis(op, ":W", muzakByAxis[axis]);
+                    axis++;
+                }
+                if (useY)
+                {
+                    WriteMuzakAxis(op, ":Y", muzakByAxis[axis]);
+                    axis++;
+                }
+                if (useX)
+                {
+                    WriteMuzakAxis(op, ":X", muzakByAxis[axis]);
+                    axis++;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="notes">Each note is a Tuple(priority, midiFreq)</param>
+        /// <param name="muzakByAxis"></param>
+        private void ChordImitate_HighLow(List<Tuple<int, int>> notes, int duration, List<List<Tuple<int, int>>> muzakByAxis, SortedSet<int> priorities)
+        {
+            int[] pri = priorities.ToArray();
+            int maxPriIdx = Math.Min(pri.Length, nAxes);
+
+            List<Tuple<int, int>> prioritizedNotes = notes.Where(n => priorities.Take(maxPriIdx).Contains(n.Item1)).ToList();
+
+            while(prioritizedNotes.Count() > nAxes)
+            {
+                foreach(int prio in priorities)
+                {
+                    var thisPriNotes = prioritizedNotes.Where(n => n.Item1 == prio).ToList();
+                    var thisPriNotesByFreq = thisPriNotes.OrderBy(n => n.Item2).ToList();
+
+                    if (thisPriNotesByFreq.Count > 1)
+                        prioritizedNotes.Remove(thisPriNotesByFreq[thisPriNotesByFreq.Count / 2]);
+                }
+            }
+
+            var priNotesByFreq = prioritizedNotes.OrderBy(n => n.Item2).ToList();
+
+            for (int axis = 0; axis < nAxes; axis++)
+            {
+                muzakByAxis[axis].Add(new Tuple<int, int>(duration, priNotesByFreq[axis].Item2));
+            }
+
+        }
+
+        /// <summary>
+        /// Falls back on ChordImitate_HighLow if timing is too short for round robin!
+        /// </summary>
+        /// <param name="notes">Each note is a Tuple(priority, midiFreq)</param>
+        /// <param name="muzakByAxis"></param>
+        /// <param name="ms">milliseconds, the switching time between rounds</param>
+        private void ChordImitate_RoundRobin(List<Tuple<int, int>> notes, int duration, List<List<Tuple<int, int>>> muzakByAxis, SortedSet<int> priorities, int ms)
+        {
+            int samplesPerRound = ms * 44100 / 1000;
+            if(duration < samplesPerRound * 2) //Must be at least two rounds of round robin, or we fall back.
+            {
+                ChordImitate_HighLow(notes, duration, muzakByAxis, priorities);
+                return;
+            }
+
+            int[] pri = priorities.ToArray();
+            int maxPriIdx = Math.Min(pri.Length, nAxes);
+
+            double[] avgFreq = new double[nAxes];
+            int[] axisOut = new int[nAxes];
+            List<Tuple<int, int>>[] notesSet = new List<Tuple<int, int>>[nAxes];
+
+            for (int priIdx = 0; priIdx < maxPriIdx; priIdx++)
+            {
+                var set = notes.Where(n => n.Item1 == pri[priIdx]);
+                notesSet[priIdx] = set.ToList();
+                avgFreq[priIdx] = set.Average(n =>n.Item2); 
+            }
+
+            if(maxPriIdx < nAxes) //We have one chord on one axis - split it up to multiple axis if desired.
+            {
+                if (notesSet[0].Count > 1)
+                {
+                    if (avgFreq[0] < 50) //Low notes - split off the highest
+                    {
+                        Tuple<int, int> highestNote = notesSet[0].OrderByDescending(n => n.Item2).First();
+                        notesSet[0].Remove(highestNote);
+                        avgFreq[0] = notesSet[0].Average(n => n.Item2);
+
+                        notesSet[maxPriIdx] = new List<Tuple<int, int>>(){highestNote};
+                        avgFreq[maxPriIdx] = highestNote.Item2;
+                    }
+                    else //High notes - split off the lowest
+                    {
+                        Tuple<int, int> lowestNote = notesSet[0].OrderBy(n => n.Item2).First();
+                        foreach (var note in notesSet[0])
+                        {
+                            if (note.Item2 < lowestNote.Item2)
+                                lowestNote = note;
+                        }
+                        notesSet[0].Remove(lowestNote);
+                        avgFreq[0] = notesSet[0].Average(n => n.Item2);
+
+                        notesSet[maxPriIdx] = new List<Tuple<int, int>>(){lowestNote};
+                        avgFreq[maxPriIdx] = lowestNote.Item2;
+                    }
+                    maxPriIdx++;
+                }
+
+            }
+
+            int[] dividingFreqs = new int[] { 0, 50, 100};
+            for (int priIdx = maxPriIdx; priIdx < nAxes; priIdx++)
+            {
+                notesSet[priIdx] = new List<Tuple<int, int>>() { new Tuple<int, int>(-1, 0) };
+                avgFreq[priIdx] = dividingFreqs[priIdx];
+            }
+
+            var sortedAvgFreq = avgFreq.ToList();
+            sortedAvgFreq.Sort();
+
+            for (int priIdx = 0; priIdx < nAxes; priIdx++)
+            {
+                axisOut[priIdx] = sortedAvgFreq.IndexOf(avgFreq[priIdx]); 
+            }
+
+            HashSet<int> axesWritten = new HashSet<int>();
+            for (int priIdx = 0; priIdx < nAxes; priIdx++)
+            {
+                int axisIdx = axisOut[priIdx];
+                axesWritten.Add(axisIdx);
+                List<Tuple<int, int>> muzakForAxis = muzakByAxis[axisIdx]; //Tuple<duration, midiFreq>
+
+                var notesOfChord = notesSet[priIdx];
+
+                int round = 1;
+                int noteIdx;
+                while(samplesPerRound * round <= duration)
+                {
+                    noteIdx = (round - 1) % (notesOfChord.Count);
+                    muzakForAxis.Add(new Tuple<int,int>(samplesPerRound, notesOfChord[noteIdx].Item2));
+                    round++;
+                }
+                noteIdx = (round - 1) % (notesOfChord.Count);
+                round--;
+                muzakForAxis.Add(new Tuple<int,int>(duration - samplesPerRound * round, notesOfChord[noteIdx].Item2));
+
+            }
+
+
+            //for (int axis = 0; axis < nAxes; axis++)
+            //{
+            //    if(!axesWritten.Contains(axis))
+            //        for(int r=0; r<rou)
+            //}
+
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="op"></param>
+        /// <param name="AxisIdentifier"></param>
+        /// <param name="notes">List<Tuple<duration, MidiFreq>></param>
+        private void WriteMuzakAxis(StreamWriter op, string AxisIdentifier, List<Tuple<int, int>> notes)
+        {
+            op.WriteLine("#######################################################");
+            op.WriteLine(AxisIdentifier);
+            int lastOctave = 4;
+            int noteNum = 0;
+            foreach(var note in notes)
+            {
+                int duration = note.Item1;
+                int midiFreq = note.Item2;
+                noteNum++;
+
+                int octave = lastOctave;
+                string noteStr = ".";
+                if (midiFreq != 0)
+                    GetNote(midiFreq, out noteStr, out octave);
+
+                octave += octaveOffset;
+
+                if (octave >= 1 && octave <= 8)
+                {
+                    if (octave != lastOctave)
+                    {
+                        op.WriteLine("o" + octave.ToString());
+                        lastOctave = octave;
+                    }
+                }
+                if ((octave >= 1 && octave <= 8) || midiFreq == 0)
+                {
+                    string str = String.Format("{0}44100/{1:00000} \t\t\t#{3:00000}: {0}{2} (m.f. {5}) {4:0.000} sec", noteStr, duration, midiFreq == 0 ? "" : octave.ToString(), noteNum, duration/44100f, midiFreq);
+                    op.WriteLine(str);
+                }
+            }
+        }
+        private void SaveMuzak(string filename)
+        {
+           
             AudioSynthesis.Sequencer.MidiFileSequencer mseq = st.mseq;
             MidiMessage[] mdata = mseq.mdata;
             
@@ -376,135 +693,134 @@ namespace DirectSoundDemo
             int[] axisPlayingPriority = new int[nAxes];
             Array.Clear(axisPlayingPriority, 0, nAxes);
 
+            Dictionary<int, Tuple<int, List<Tuple<int, int>>>> muzak = new Dictionary<int, Tuple<int, List<Tuple<int, int>>>>();
+            //muzak = Dictionary<timestamp, Tuple<Duration, List<Tuple<priority, midiFreq>>>>
+            //i.e. the song is divided into pieces of time, where each slice has a number of notes that should play.
+            //We'll try to play them in priority order, depending on chords and what was playing previously...
+
             SortedDictionary<int, List<MuzakNote>> currentNotes = new SortedDictionary<int, List<MuzakNote>>();
 
 
-            //List<MuzakNote>[] currentlyPlaying = new List<MuzakNote>[nAxes];
-            //for (int i = 0; i < nAxes; i++)
-            //    currentlyPlaying[i] = new List<MuzakNote>();
+            int lastTimeStamp = 0;
+            foreach (MidiMessage mm in mdata)
+            {
+                if (mm.channel == 255)
+                    continue;
 
-                foreach (MidiMessage mm in mdata)
+                time = (double)mm.delta;
+                if (!noteViewer1.ChannelPriorities.ContainsKey(mm.channel))
+                    continue;
+
+
+                bool startOk = time >= noteViewer1.startTime || noteViewer1.startTime < 0;
+                bool endOk = time <= noteViewer1.endTime || noteViewer1.endTime < 0;
+                if (startOk && endOk)
                 {
-                    if (mm.channel == 255)
-                        continue;
 
-                    time = (double)mm.delta;
-                    if (!noteViewer1.ChannelPriorities.ContainsKey(mm.channel))
-                        continue;
+                    if (lastTime.Count == 0)
+                        foreach (var c in channels)
+                            lastTime.Add(c, time);
 
-
-                    bool startOk = time >= noteViewer1.startTime || noteViewer1.startTime < 0;
-                    bool endOk = time <= noteViewer1.endTime || noteViewer1.endTime < 0;
-                    if (startOk && endOk)
+                    if (!last.ContainsKey(mm.channel))
                     {
-
-                        if (lastTime.Count == 0)
-                            foreach (var c in channels)
-                                lastTime.Add(c, time);
-
-                        if (!last.ContainsKey(mm.channel))
-                        {
-                            last.Add(mm.channel, new MidiMessage(mm.channel, 0, 0, 0));
-                        }
+                        last.Add(mm.channel, new MidiMessage(mm.channel, 0, 0, 0));
+                    }
 
                         
                        
                         
-                        long us = (long)(time - lastTime[mm.channel]);
+                    long us = (long)(time - lastTime[mm.channel]);
 
-                        if (mm.command == (int)MidiEventTypeEnum.NoteOff)
+                    
+
+
+                    if (mm.command == (int)MidiEventTypeEnum.NoteOn || mm.command == (int)MidiEventTypeEnum.NoteOff)
+                    {
+                        int currentTimeStamp = mm.delta;
+                        int timeDelta = currentTimeStamp - lastTimeStamp;
+                        if (timeDelta > 0)
                         {
-                            MuzakNote toEnd = null;
-                            bool multipleNotes = false;
-                            foreach(var notes in currentNotes.Values)
+                            List<Tuple<int,int>> timeSlice = new List<Tuple<int,int>>();
+                            muzak.Add(lastTimeStamp, new Tuple<int, List<Tuple<int,int>>>(timeDelta, timeSlice));
+
+                            //muzak = Dictionary<timestamp, List<Tuple<priority, midiFreq>>>
+                            //i.e. the song is divided into pieces of time, where each slice has a number of notes that should play.
+                            //We'll try to play them in priority order, depending on chords and what was playing previously...
+
+
+                            foreach (var x in currentNotes)
                             {
-                                foreach(var note in notes)
-                                {
-                                    if(note.channel == mm.channel && note.midiFreq == mm.data1)
-                                    {
-                                        toEnd = note;
-                                        multipleNotes = notes.Count > 1;
-                                    }
-                                }
+                                int pri = x.Key;
+                                foreach (var note in x.Value)
+                                    timeSlice.Add(new Tuple<int,int>(pri, note.midiFreq));
                             }
 
-                            if (toEnd != null)
+
+                            lastTimeStamp = mm.delta;
+
+                        }
+                        //List<List<MuzakNote>> toOutput = new List<List<MuzakNote>>();
+                        //foreach (int pri in currentNotes.Keys)
+                        //{
+                        //    toOutput.Add(currentNotes[pri]);
+
+                        //    Console.Write(String.Join(", ", currentNotes[pri]) + " | ");
+                        //}
+                        //Console.WriteLine("");
+                            
+
+                    }
+
+                    if (mm.command == (int)MidiEventTypeEnum.NoteOn)
+                    {
+                        int pri = priorities[mm.channel];
+                        var toStart = new MuzakNote(mm.data1, pri, mm.channel);
+
+                        if (currentNotes.ContainsKey(pri))
+                        {
+                            currentNotes[pri].Add(toStart);
+                        }
+                        else
+                        {
+                            currentNotes.Add(pri, new List<MuzakNote>() { toStart });
+                        }
+                    }
+                    else if (mm.command == (int)MidiEventTypeEnum.NoteOff)
+                    {
+                        MuzakNote toEnd = null;
+                        bool multipleNotes = false;
+                        foreach (var notes in currentNotes.Values)
+                        {
+                            foreach (var note in notes)
                             {
-                                if (multipleNotes)
+                                if (note.channel == mm.channel && note.midiFreq == mm.data1)
                                 {
-                                    currentNotes[toEnd.priority].Remove(toEnd); //Remove note from list at this priority
-                                }
-                                else
-                                {
-                                    currentNotes.Remove(toEnd.priority); //Remove this entire priority
+                                    toEnd = note;
+                                    multipleNotes = notes.Count > 1;
                                 }
                             }
                         }
-                        else if (mm.command == (int)MidiEventTypeEnum.NoteOn)
+
+                        if (toEnd != null)
                         {
-                            int pri = priorities[mm.channel];
-                            var toStart = new MuzakNote(mm.data1, pri, mm.channel);
-                            
-                            if(currentNotes.ContainsKey(pri))
+                            if (multipleNotes)
                             {
-                                currentNotes[pri].Add(toStart);
+                                currentNotes[toEnd.priority].Remove(toEnd); //Remove note from list at this priority
                             }
                             else
                             {
-                                currentNotes.Add(pri, new List<MuzakNote>() { toStart });
+                                currentNotes.Remove(toEnd.priority); //Remove this entire priority
                             }
                         }
-
-
-                       
-
-                            //Dictionary<byte, MuzakNote> best = new Dictionary<byte, MuzakNote>();
-                        //foreach (byte ch in channels)
-                        //    if(currentlyPlaying[ch] != null)
-                        //    {
-                        //        best.Add(ch, currentlyPlaying[ch]);
-                        //    }
-                        //best.OrderBy(kp => (priorities[kp.Key])).Take(nAxes);
-
-
-                        if (mm.command == (int)MidiEventTypeEnum.NoteOn || mm.command == (int)MidiEventTypeEnum.NoteOff)
-                        {
-                            
-                            List<List<MuzakNote>> toOutput = new List<List<MuzakNote>>();
-                            foreach (int pri in currentNotes.Keys)
-                            {
-                                toOutput.Add(currentNotes[pri]);
-
-                                Console.Write(String.Join(", ", currentNotes[pri]) + " | ");
-                            }
-                            Console.WriteLine("");
-                            
-
-                        }
-
-                        last[mm.channel] = mm;
-                        lastTime[mm.channel] = time;
                     }
+
+                    last[mm.channel] = mm;
+                    lastTime[mm.channel] = time;
                 }
+            }
 
-            //if (MicrosecPerPixel > 0)
-            //{
-            //    float timeX = (float)(LeftMargin + ((currTime) - TimeOffset_us) / MicrosecPerPixel);
-            //    e.Graphics.DrawLine(Pens.Green, timeX, 0, timeX, this.Height);
-
-            //    if (startTime >= 0)
-            //    {
-            //        timeX = (float)(LeftMargin + ((startTime) - TimeOffset_us) / MicrosecPerPixel);
-            //        e.Graphics.DrawLine(Pens.White, timeX, 0, timeX, this.Height);
-            //    }
-
-            //    if (endTime >= 0)
-            //    {
-            //        timeX = (float)(LeftMargin + ((endTime) - TimeOffset_us) / MicrosecPerPixel);
-            //        e.Graphics.DrawLine(Pens.White, timeX, 0, timeX, this.Height);
-            //    }
-            //}
-
+       
+             WriteMuzak(filename, muzak);
         
         
         }
@@ -512,36 +828,43 @@ namespace DirectSoundDemo
         SynthThread st;
         private void btnLoad_Click(object sender, EventArgs e)
         {
+            LoadMidi("test");
+        }
+
+        string midiFileName;
+        int sampleRate = -1;
+        public void LoadMidi(string fileName)
+        {
+            midiFileName = fileName;
+
             MainForm pform = (MainForm)this.MdiParent;
             st = pform.sthread;
             AudioSynthesis.Sequencer.MidiFileSequencer mseq = st.mseq;
             mseq.UnMuteAllChannels();
             MidiMessage[] mdata = mseq.mdata;
 
+            nudOffset.Value = 0;
             noteViewer1.Reset();
             noteViewer1.mseq = mseq;
             noteViewer1.Invalidate();
 
-            double time = 0;
-            textBox1.Clear();
+            //double time = 0;
 
-            if (mdata == null)
-                textBox1.AppendText("Please load a midi file first.");
-            else
-            {
-                foreach (MidiMessage mm in mdata)
-                {
-                    time += (double)mm.delta;
-                    //The current event starts at mm.delta microseconds after the previous event.
-                    //textBox1.AppendText(mm.ToString() + " " + mm.AbsTime_ms + "usec\r\n");
-                }
+            //if (mdata != null)
+            //{
+            //    foreach (MidiMessage mm in mdata)
+            //    {
+            //        time += (double)mm.delta;
+            //        //The current event starts at mm.delta microseconds after the previous event.
+            //        //textBox1.AppendText(mm.ToString() + " " + mm.AbsTime_ms + "usec\r\n");
+            //    }
 
-            }
+            //}
         }
 
         private void nudOffset_ValueChanged(object sender, EventArgs e)
         {
-            noteViewer1.TimeOffset_us = (int)nudOffset.Value;
+            noteViewer1.TimeOffset_samples = (int)nudOffset.Value;
             noteViewer1.Invalidate();
         }
 
@@ -549,7 +872,7 @@ namespace DirectSoundDemo
         {
             ChangeIncrement();
 
-            noteViewer1.MicrosecPerPixel = (int)nudMicrosecPerPix.Value;
+            noteViewer1.SamplesPerPixel = (int)nudMicrosecPerPix.Value;
             noteViewer1.Invalidate();
         }
 
@@ -560,7 +883,7 @@ namespace DirectSoundDemo
 
         private void ChangeIncrement()
         {
-            double width_us = noteViewer1.Width * noteViewer1.MicrosecPerPixel;
+            double width_us = noteViewer1.Width * noteViewer1.SamplesPerPixel;
             nudOffset.Increment = (int)(width_us / 4);
         }
 
@@ -582,21 +905,33 @@ namespace DirectSoundDemo
 
         void tmrFollow_Tick(object sender, EventArgs e)
         {
-            double width_us = noteViewer1.Width * noteViewer1.MicrosecPerPixel;
+            double width_us = noteViewer1.Width * noteViewer1.SamplesPerPixel;
 
             if (st != null && st.mseq != null && st.mseq.IsPlaying)
             {
 
-                decimal desired = (decimal)(currentPlayingTime - width_us * 1 / 8);
-                if ((double)(desired - nudOffset.Value) > width_us * 3 / 4 || nudOffset.Value > desired)
+                if (currentPlayingTime >= 0)
                 {
-                    if (desired < 0)
-                        desired = 0;
-                    if (desired > nudOffset.Maximum)
-                        desired = nudOffset.Maximum;
-
-                    nudOffset.Value = desired;
+                    double max = (double)(nudOffset.Value) + width_us * 7 / 8;
+                    if (currentPlayingTime > max)
+                    {
+                        nudOffset.Value = (decimal)((double)(currentPlayingTime) - width_us * 1 / 8);
+                    }
+                    else if (currentPlayingTime < nudOffset.Value)
+                    {
+                        nudOffset.Value = currentPlayingTime;
+                    }
                 }
+                //decimal desired = (decimal)(currentPlayingTime - width_us * 1 / 8);
+                //if ((double)(desired - nudOffset.Value) > width_us * 3 / 4 || nudOffset.Value > desired)
+                //{
+                //    if (desired < 0)
+                //        desired = 0;
+                //    if (desired > nudOffset.Maximum)
+                //        desired = nudOffset.Maximum;
+
+                //    nudOffset.Value = desired;
+                //}
 
             }
         }

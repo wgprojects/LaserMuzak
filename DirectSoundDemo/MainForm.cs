@@ -96,7 +96,7 @@ namespace DirectSoundDemo
         {
             OpenFileDialog openFileDialog = new OpenFileDialog();
             openFileDialog.InitialDirectory = Properties.Settings.Default.midi_path;
-            openFileDialog.Multiselect = true;
+            openFileDialog.Multiselect = false;
             openFileDialog.Filter = "Midi Files (*.mid;*.midi)|*.mid;*.midi";
             if (openFileDialog.ShowDialog(this) == DialogResult.OK)
             {
@@ -110,7 +110,7 @@ namespace DirectSoundDemo
                     plist.addSongs(openFileDialog.FileNames, 0);
                     sthread.LoadSong(openFileDialog.FileNames[0]);
 
-                    
+                    lasermuzak.LoadMidi(openFileDialog.FileNames[0]);
 
                     updatetoolstripdisplay();
                 }
@@ -350,6 +350,14 @@ namespace DirectSoundDemo
         private void MainForm_MdiChildActivate(object sender, EventArgs e)
         {
             
+        }
+
+        private void MainForm_Shown(object sender, EventArgs e)
+        {
+            int bot = pctrl.Bottom;
+            lasermuzak.Top = bot + 20;
+
+            lasermuzak.Width = this.Width - 20;
         }
 
       

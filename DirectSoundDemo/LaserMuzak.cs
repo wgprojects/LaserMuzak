@@ -258,6 +258,7 @@ namespace DirectSoundDemo
 
         private void btnSaveMuzak_Click(object sender, EventArgs e)
         {
+            octaveOffset = 0;
             if(st == null || st.mseq == null)
             {
                 MessageBox.Show("Not loaded - aborting");
@@ -421,12 +422,21 @@ namespace DirectSoundDemo
                 {
                     //Easy case
                     var sortedNotes = notes.OrderBy(n => n.Item2).ToList(); //Sort by frequency
+                    int skip = 0;
                     for(int axis = 0; axis < nAxes; axis++)
                     {
-                        if (axis < sortedNotes.Count)
-                            muzakByAxis[axis].Add(new Tuple<int, int>(duration, sortedNotes[axis].Item2));
+                        if ((axis == 0 && sortedNotes.Count > 0 && useW && sortedNotes[axis].Item2 > 60))
+                        {
+                            skip++;
+                            muzakByAxis[axis].Add(new Tuple<int, int>(duration, NO_SOUND));
+                        }
                         else
-                            muzakByAxis[axis].Add(new Tuple<int,int>(duration, NO_SOUND));
+                        {
+                            if (axis - skip < sortedNotes.Count)
+                                muzakByAxis[axis].Add(new Tuple<int, int>(duration, sortedNotes[axis - skip].Item2));
+                            else
+                                muzakByAxis[axis].Add(new Tuple<int, int>(duration, NO_SOUND));
+                        }
                     }
                         
                 }
@@ -466,7 +476,7 @@ namespace DirectSoundDemo
             }
             using (StreamWriter op = new StreamWriter(filename))
             {
-                op.WriteLine("t120 #Does this work?");
+                op.WriteLine("t240 #Does this work?");
 
                 int axis = 0;
                 if(useW)
@@ -591,13 +601,24 @@ namespace DirectSoundDemo
             var sortedAvgFreq = avgFreq.ToList();
             sortedAvgFreq.Sort();
 
+            int nAllowedAxes = nAxes;
             for (int priIdx = 0; priIdx < nAxes; priIdx++)
             {
-                axisOut[priIdx] = sortedAvgFreq.IndexOf(avgFreq[priIdx]); 
+                int freq = sortedAvgFreq.IndexOf(avgFreq[priIdx]);
+                if (priIdx == 0 && cbAxisW.Checked && freq > 70)
+                {
+                    nAllowedAxes = nAxes - 1;
+                    axisOut[nAxes] = 0;
+                }
+                else
+                {
+
+                    axisOut[priIdx] = freq;
+                }
             }
 
             HashSet<int> axesWritten = new HashSet<int>();
-            for (int priIdx = 0; priIdx < nAxes; priIdx++)
+            for (int priIdx = 0; priIdx < nAllowedAxes; priIdx++)
             {
                 int axisIdx = axisOut[priIdx];
                 axesWritten.Add(axisIdx);
@@ -613,10 +634,34 @@ namespace DirectSoundDemo
                     muzakForAxis.Add(new Tuple<int,int>(samplesPerRound, notesOfChord[noteIdx].Item2));
                     round++;
                 }
-                noteIdx = (round - 1) % (notesOfChord.Count);
-                round--;
-                muzakForAxis.Add(new Tuple<int,int>(duration - samplesPerRound * round, notesOfChord[noteIdx].Item2));
+                if (duration > samplesPerRound * round)
+                {
+                    noteIdx = (round - 1) % (notesOfChord.Count);
+                    round--;
+                    muzakForAxis.Add(new Tuple<int, int>(duration - samplesPerRound * round, notesOfChord[noteIdx].Item2));
+                }
+            }
 
+            for (int priIdx = nAllowedAxes; priIdx < nAxes; priIdx++)
+            {
+                int axisIdx = axisOut[priIdx];
+                List<Tuple<int, int>> muzakForAxis = muzakByAxis[axisIdx]; //Tuple<duration, midiFreq>
+
+
+                int round = 1;
+                int noteIdx;
+                while (samplesPerRound * round <= duration)
+                {
+                    //noteIdx = (round - 1) % (notesOfChord.Count);
+                    muzakForAxis.Add(new Tuple<int, int>(samplesPerRound, 0));
+                    round++;
+                }
+                if (duration > samplesPerRound * round)
+                {
+                    //noteIdx = (round - 1) % (notesOfChord.Count);
+                    round--;
+                    muzakForAxis.Add(new Tuple<int, int>(duration - samplesPerRound * round, 0));
+                }
             }
 
 

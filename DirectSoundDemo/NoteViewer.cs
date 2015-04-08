@@ -232,7 +232,7 @@ namespace DirectSoundDemo
                                     if (numPixels > sz.Width + 2 * noteTextOffset && height >  sz.Height + 2 * noteTextOffset)
                                     {
                                         PointF loc = new PointF(startPixel + noteTextOffset, (float)yOffset + (height - sz.Height) / 2);
-                                        if(loc.X > LeftMargin)
+                                        if(loc.X >= LeftMargin)
                                             e.Graphics.DrawString(noteText, fontSmall, Brushes.Black, loc);
                                     }
 

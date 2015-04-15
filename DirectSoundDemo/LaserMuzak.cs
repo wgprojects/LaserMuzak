@@ -425,7 +425,7 @@ namespace DirectSoundDemo
                     int skip = 0;
                     for(int axis = 0; axis < nAxes; axis++)
                     {
-                        if ((axis == 0 && sortedNotes.Count > 0 && useW && sortedNotes[axis].Item2 > 60))
+                        if ((axis == 0 && sortedNotes.Count > 0 && useW && sortedNotes[axis].Item2 > 67))
                         {
                             skip++;
                             muzakByAxis[axis].Add(new Tuple<int, int>(duration, NO_SOUND));
@@ -522,12 +522,15 @@ namespace DirectSoundDemo
             }
 
             var priNotesByFreq = prioritizedNotes.OrderBy(n => n.Item2).ToList();
-
-            for (int axis = 0; axis < nAxes; axis++)
+            int max = Math.Min(priNotesByFreq.Count, nAxes);
+            for (int axis = 0; axis < max; axis++)
             {
                 muzakByAxis[axis].Add(new Tuple<int, int>(duration, priNotesByFreq[axis].Item2));
             }
-
+            for (int axis = max; axis < nAxes; axis++)
+            {
+                muzakByAxis[axis].Add(new Tuple<int, int>(duration, 0));
+            }
         }
 
         /// <summary>
